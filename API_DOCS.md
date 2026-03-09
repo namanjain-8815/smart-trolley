@@ -83,7 +83,7 @@ Starts a new shopping session for a trolley. Must be called before any items can
   "data": {
     "session": {
       "id": "session-uuid",
-      "trolley_id": "TROLLEY-01",
+      "trolley_id": "T001",
       "customer_name": "Ravi Kumar",
       "customer_mobile": "9876543210",
       "status": "active",
@@ -192,14 +192,14 @@ curl -X POST https://smart-trolley-nine.vercel.app/api/admin/products ^
 ```cmd
 curl -X POST http://localhost:3000/api/session/start ^
   -H "Content-Type: application/json" ^
-  -d "{\"trolley_id\":\"TROLLEY-01\",\"customer_name\":\"Ravi Kumar\",\"customer_mobile\":\"9876543210\"}"
+  -d "{\"trolley_id\":\"T001\",\"customer_name\":\"Ravi Kumar\",\"customer_mobile\":\"9876543210\"}"
 ```
 
 #### Vercel (Production)
 ```cmd
 curl -X POST https://smart-trolley-nine.vercel.app/api/session/start ^
   -H "Content-Type: application/json" ^
-  -d "{\"trolley_id\":\"TROLLEY-01\",\"customer_name\":\"Ravi Kumar\",\"customer_mobile\":\"9876543210\"}"
+  -d "{\"trolley_id\":\"T001\",\"customer_name\":\"Ravi Kumar\",\"customer_mobile\":\"9876543210\"}"
 ```
 
 ---

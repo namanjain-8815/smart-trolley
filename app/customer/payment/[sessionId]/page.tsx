@@ -156,6 +156,41 @@ export default function PaymentPage() {
             </p>
           </div>
 
+          {/* Pay Now Button */}
+          {upiLink && (
+            <a
+              href={upiLink}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '0.6rem',
+                marginTop: '1.25rem',
+                padding: '0.9rem 1.5rem',
+                background: 'linear-gradient(135deg, #6d28d9, #4f46e5)',
+                color: '#fff',
+                borderRadius: '0.75rem',
+                fontWeight: 700,
+                fontSize: '1.05rem',
+                textDecoration: 'none',
+                boxShadow: '0 4px 15px rgba(109,40,217,0.35)',
+                transition: 'transform 0.15s, box-shadow 0.15s',
+                letterSpacing: '0.02em',
+              }}
+              onMouseEnter={e => {
+                (e.currentTarget as HTMLAnchorElement).style.transform = 'translateY(-2px)'
+                ;(e.currentTarget as HTMLAnchorElement).style.boxShadow = '0 6px 20px rgba(109,40,217,0.5)'
+              }}
+              onMouseLeave={e => {
+                (e.currentTarget as HTMLAnchorElement).style.transform = 'translateY(0)'
+                ;(e.currentTarget as HTMLAnchorElement).style.boxShadow = '0 4px 15px rgba(109,40,217,0.35)'
+              }}
+            >
+              <span style={{ fontSize: '1.3rem' }}>📲</span>
+              Pay Now with UPI
+            </a>
+          )}
+
           <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'center', marginTop: '0.875rem', flexWrap: 'wrap' }}>
             {['Google Pay', 'PhonePe', 'Paytm', 'BHIM'].map(app => (
               <span key={app} className="badge badge-paid">{app}</span>
