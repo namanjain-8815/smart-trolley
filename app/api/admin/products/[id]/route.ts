@@ -8,36 +8,33 @@ function checkAuth(req: NextRequest) {
   return verifyAdminToken(req.headers.get('x-admin-token'))
 }
 
-// =======================
-// ✅ GET (FOR ESP32)
-// =======================
+// ✅ CORRECT GET
 export async function GET(
   req: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
+  { params }: { params: { id: string } }
 ) {
   try {
-    const { id } = await params
+    const id = params.id;
 
-    // 🔥 IMPORTANT: match barcode, not id
     const { data, error } = await supabaseAdmin
       .from('products')
       .select('*')
       .eq('barcode', id)
-      .single()
+      .single();
 
     if (error || !data) {
-      return err('Not Found', 404)
+      return err('Not Found', 404);
     }
 
     return ok({
       name: data.name,
       price: data.price,
-    })
+    });
   } catch (e: unknown) {
     return err(
       e instanceof Error ? e.message : 'Failed to fetch product',
       500
-    )
+    );
   }
 }
 
