@@ -4,8 +4,7 @@ export async function POST(req: Request) {
   try {
     const { trolley_id, barcode } = await req.json();
 
-    // 🔥 global cart storage (same as your scan API should use)
-    // NOTE: This only works if scan API also uses global.carts
+    
     if (!(global as any).carts) {
       (global as any).carts = {};
     }
