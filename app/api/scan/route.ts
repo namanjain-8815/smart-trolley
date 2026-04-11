@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 import { NextRequest } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 import { ok, err } from '@/lib/apiHelpers'
@@ -14,28 +13,9 @@ const MODE_REMOVE_BARCODE = 'MODE_REMOVE' // Scan this barcode → REMOVE mode (
 // Handles ALL barcode scans: mode switches AND product scans.
 // The ESP32 sends every scan to this single endpoint — mode logic is server-side.
 export async function POST(req: NextRequest) {
-=======
-import { NextResponse } from "next/server";
-
-export async function POST(req: Request) {
->>>>>>> 589dd5a18ec6bbe786e7c586aedac738063a24ec
   try {
-    const { trolley_id, barcode } = await req.json();
+    const { trolley_id, barcode } = await req.json()
 
-    // 🔥 You must replace this with your DB logic
-    // Example logic:
-
-    // 1. Find scanned item using barcode + trolley_id
-    let item = await findItem(trolley_id, barcode); // ⚠️ replace this
-
-    if (!item) {
-      return NextResponse.json({
-        success: false,
-        message: "Item not found",
-      });
-    }
-
-<<<<<<< HEAD
     // ── STEP 1: Intercept mode-switch barcodes ────────────────────────────────
     if (barcode === MODE_ADD_BARCODE) {
       setMode(trolley_id, 'ADD')
@@ -232,28 +212,4 @@ async function handleRemove(sessionId: string, barcode: string) {
     action,
     mode: 'REMOVE',
   })
-=======
-    // 2. Reduce quantity
-    if (item.quantity > 1) {
-      await updateQuantity(item.id, item.quantity - 1); // ⚠️ replace
-    } else {
-      // 3. Delete item if quantity = 1
-      await deleteItem(item.id); // ⚠️ replace
-    }
-
-    return NextResponse.json({
-      success: true,
-      message: "Item removed",
-    });
-
-  } catch (error: any) {
-    return NextResponse.json(
-      {
-        success: false,
-        error: error.message,
-      },
-      { status: 500 }
-    );
-  }
->>>>>>> 589dd5a18ec6bbe786e7c586aedac738063a24ec
 }
