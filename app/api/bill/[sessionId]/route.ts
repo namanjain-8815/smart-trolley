@@ -7,16 +7,15 @@ import {
   generateUpiLink
 } from '@/lib/apiHelpers'
 
-// =====================================================
-// GET /api/bill/[sessionId]
-// View bill details (used by website)
-// =====================================================
+// =====================================
+// GET BILL
+// =====================================
 export async function GET(
-  _req: NextRequest,
-  { params }: { params: Promise<{ sessionId: string }> }
+  req: NextRequest,
+  { params }: { params: { sessionId: string } }
 ) {
   try {
-    const { sessionId } = await params
+    const sessionId = params.sessionId
 
     const { data: session, error: sessionError } =
       await supabaseAdmin
@@ -25,34 +24,17 @@ export async function GET(
         .eq('id', sessionId)
         .single()
 
-    if (sessionError || !session) {
+    if (sessionError || !session)
       return err('Session not found', 404)
-    }
 
     const { data: items, error: itemsError } =
       await supabaseAdmin
         .from('scanned_items')
         .select(`
-          id,
-          quantity,
-          unit_price,
-          gst_percent,
-          discount_percent,
-          gst_amount,
-          discount_amount,
-          subtotal,
-          verified,
-          weight_expected,
-          created_at,
-          products (
-            id,
-            name,
-            barcode,
-            weight_grams
-          )
+          *,
+          products(*)
         `)
         .eq('session_id', sessionId)
-        .order('created_at', { ascending: true })
 
     if (itemsError) throw itemsError
 
@@ -61,7 +43,7 @@ export async function GET(
         quantity: i.quantity,
         unit_price: i.unit_price,
         gst_percent: i.gst_percent,
-        discount_percent: i.discount_percent,
+        discount_percent: i.discount_percent
       }))
     )
 
@@ -78,69 +60,48 @@ export async function GET(
       upiLink
     })
 
-  } catch (e: unknown) {
-
-    const message =
-      e instanceof Error
-        ? e.message
-        : 'Failed to get bill'
-
-    return err(message, 500)
+  } catch (e: any) {
+    return err(e.message, 500)
   }
 }
 
-// =====================================================
-// POST /api/bill/T002
-// Checkout by trolley id OR session id
-// Used by ESP32 checkout barcode
-// =====================================================
+// =====================================
+// POST CHECKOUT
+// =====================================
 export async function POST(
-  _req: NextRequest,
-  { params }: { params: Promise<{ sessionId: string }> }
+  req: NextRequest,
+  { params }: { params: { sessionId: string } }
 ) {
   try {
 
-    const { sessionId } = await params
+    const id = params.sessionId
 
-    let session = null
-
-    // First try trolley_id
-    const trolleySearch =
+    let { data: session } =
       await supabaseAdmin
         .from('trolley_sessions')
         .select('*')
-        .eq('trolley_id', sessionId)
+        .eq('trolley_id', id)
         .eq('status', 'active')
         .single()
 
-    if (trolleySearch.data) {
-      session = trolleySearch.data
-    }
-
-    // If not found, try real session id
     if (!session) {
-
-      const idSearch =
+      session = (
         await supabaseAdmin
           .from('trolley_sessions')
           .select('*')
-          .eq('id', sessionId)
+          .eq('id', id)
           .single()
-
-      session = idSearch.data
+      ).data
     }
 
-    if (!session) {
-      return err('Session not found', 404)
-    }
+    if (!session)
+      return err("Session not found", 404)
 
-    // Delete scanned items
     await supabaseAdmin
       .from('scanned_items')
       .delete()
       .eq('session_id', session.id)
 
-    // Complete session
     await supabaseAdmin
       .from('trolley_sessions')
       .update({
@@ -149,58 +110,37 @@ export async function POST(
       .eq('id', session.id)
 
     return ok({
-      success: true,
-      message: 'Checkout complete'
+      success: true
     })
 
-  } catch (e: unknown) {
-
-    const message =
-      e instanceof Error
-        ? e.message
-        : 'Checkout failed'
-
-    return err(message, 500)
+  } catch (e: any) {
+    return err(e.message, 500)
   }
 }
 
-// =====================================================
-// DELETE /api/bill/[sessionId]
-// Remove one scanned item from website
-// =====================================================
+// =====================================
+// DELETE ITEM
+// =====================================
 export async function DELETE(
   req: NextRequest,
-  { params }: { params: Promise<{ sessionId: string }> }
+  { params }: { params: { sessionId: string } }
 ) {
   try {
 
-    const { sessionId } = await params
+    const sessionId = params.sessionId
     const { item_id } = await req.json()
 
-    if (!item_id) {
-      return err('item_id is required', 400)
-    }
-
-    const { error } =
-      await supabaseAdmin
-        .from('scanned_items')
-        .delete()
-        .eq('id', item_id)
-        .eq('session_id', sessionId)
-
-    if (error) throw error
+    await supabaseAdmin
+      .from('scanned_items')
+      .delete()
+      .eq('id', item_id)
+      .eq('session_id', sessionId)
 
     return ok({
-      message: 'Item removed from bill'
+      success: true
     })
 
-  } catch (e: unknown) {
-
-    const message =
-      e instanceof Error
-        ? e.message
-        : 'Failed to remove item'
-
-    return err(message, 500)
+  } catch (e: any) {
+    return err(e.message, 500)
   }
 }
