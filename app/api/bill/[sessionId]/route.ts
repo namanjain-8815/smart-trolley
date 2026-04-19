@@ -7,14 +7,16 @@ import {
   generateUpiLink
 } from '@/lib/apiHelpers'
 
-// =====================================
-// GET BILL
-// =====================================
+// =====================================================
+// GET /api/bill/[sessionId]
+// Show bill details on website
+// =====================================================
 export async function GET(
-  req: NextRequest,
+  _req: NextRequest,
   { params }: { params: { sessionId: string } }
 ) {
   try {
+
     const sessionId = params.sessionId
 
     const { data: session, error: sessionError } =
@@ -24,17 +26,34 @@ export async function GET(
         .eq('id', sessionId)
         .single()
 
-    if (sessionError || !session)
+    if (sessionError || !session) {
       return err('Session not found', 404)
+    }
 
     const { data: items, error: itemsError } =
       await supabaseAdmin
         .from('scanned_items')
         .select(`
-          *,
-          products(*)
+          id,
+          quantity,
+          unit_price,
+          gst_percent,
+          discount_percent,
+          gst_amount,
+          discount_amount,
+          subtotal,
+          verified,
+          weight_expected,
+          created_at,
+          products (
+            id,
+            name,
+            barcode,
+            weight_grams
+          )
         `)
         .eq('session_id', sessionId)
+        .order('created_at', { ascending: true })
 
     if (itemsError) throw itemsError
 
@@ -61,22 +80,32 @@ export async function GET(
     })
 
   } catch (e: any) {
-    return err(e.message, 500)
+
+    return err(
+      e.message || 'Failed to get bill',
+      500
+    )
   }
 }
 
-// =====================================
-// POST CHECKOUT
-// =====================================
+// =====================================================
+// POST /api/bill/T002
+// Checkout barcode scanned by ESP32
+// Move trolley from active -> billing
+// DO NOT delete items
+// =====================================================
 export async function POST(
-  req: NextRequest,
+  _req: NextRequest,
   { params }: { params: { sessionId: string } }
 ) {
   try {
 
     const id = params.sessionId
 
-    let { data: session } =
+    let session = null
+
+    // Search using trolley_id first
+    const trolleySearch =
       await supabaseAdmin
         .from('trolley_sessions')
         .select('*')
@@ -84,43 +113,54 @@ export async function POST(
         .eq('status', 'active')
         .single()
 
+    if (trolleySearch.data) {
+      session = trolleySearch.data
+    }
+
+    // If not found, search by real session id
     if (!session) {
-      session = (
+
+      const idSearch =
         await supabaseAdmin
           .from('trolley_sessions')
           .select('*')
           .eq('id', id)
           .single()
-      ).data
+
+      session = idSearch.data
     }
 
-    if (!session)
-      return err("Session not found", 404)
+    if (!session) {
+      return err('Session not found', 404)
+    }
 
-    await supabaseAdmin
-      .from('scanned_items')
-      .delete()
-      .eq('session_id', session.id)
-
+    // Change status only
     await supabaseAdmin
       .from('trolley_sessions')
       .update({
-        status: 'completed'
+        status: 'billing'
       })
       .eq('id', session.id)
 
     return ok({
-      success: true
+      success: true,
+      session_id: session.id,
+      message: 'Ready for billing'
     })
 
   } catch (e: any) {
-    return err(e.message, 500)
+
+    return err(
+      e.message || 'Checkout failed',
+      500
+    )
   }
 }
 
-// =====================================
-// DELETE ITEM
-// =====================================
+// =====================================================
+// DELETE /api/bill/[sessionId]
+// Remove one item from website bill page
+// =====================================================
 export async function DELETE(
   req: NextRequest,
   { params }: { params: { sessionId: string } }
@@ -130,17 +170,29 @@ export async function DELETE(
     const sessionId = params.sessionId
     const { item_id } = await req.json()
 
-    await supabaseAdmin
-      .from('scanned_items')
-      .delete()
-      .eq('id', item_id)
-      .eq('session_id', sessionId)
+    if (!item_id) {
+      return err('item_id required', 400)
+    }
+
+    const { error } =
+      await supabaseAdmin
+        .from('scanned_items')
+        .delete()
+        .eq('id', item_id)
+        .eq('session_id', sessionId)
+
+    if (error) throw error
 
     return ok({
-      success: true
+      success: true,
+      message: 'Item removed'
     })
 
   } catch (e: any) {
-    return err(e.message, 500)
+
+    return err(
+      e.message || 'Delete failed',
+      500
+    )
   }
 }
