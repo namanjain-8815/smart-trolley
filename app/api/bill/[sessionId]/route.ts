@@ -9,7 +9,7 @@ import {
 
 // =====================================================
 // GET /api/bill/[sessionId]
-// View bill details
+// View bill details for website
 // =====================================================
 export async function GET(
   _req: NextRequest,
@@ -77,17 +77,20 @@ export async function GET(
       )
 
     return ok({
-      session,
-      items: items || [],
-      totals,
-      upiLink
+      success: true,
+      data: {
+        session,
+        items: items || [],
+        totals,
+        upiLink
+      }
     })
 
   } catch (e: any) {
 
     return err(
       e.message ||
-        'Failed to load bill',
+        'Failed to fetch bill',
       500
     )
   }
@@ -95,9 +98,9 @@ export async function GET(
 
 // =====================================================
 // POST /api/bill/T002
-// Checkout barcode scanned from ESP32
-// Change status to billing
-// DO NOT remove items
+// Checkout barcode from ESP32
+// Works for multiple trolleys simultaneously
+// Only affects that trolley
 // =====================================================
 export async function POST(
   _req: NextRequest,
@@ -107,10 +110,12 @@ export async function POST(
 
     const trolleyId =
       params.sessionId
+        .trim()
+        .toUpperCase()
 
-    // Find latest active session
+    // Find this trolley active sessions only
     const {
-      data: session,
+      data: sessions,
       error
     } = await supabaseAdmin
       .from('trolley_sessions')
@@ -119,38 +124,79 @@ export async function POST(
         'trolley_id',
         trolleyId
       )
-      .in('status', [
-        'active',
-        'billing'
-      ])
-      .order('created_at', {
-        ascending: false
-      })
-      .limit(1)
-      .single()
+      .eq(
+        'status',
+        'active'
+      )
+      .order(
+        'created_at',
+        {
+          ascending: false
+        }
+      )
 
-    if (error || !session) {
+    if (error) throw error
+
+    if (
+      !sessions ||
+      sessions.length === 0
+    ) {
       return err(
-        'Session not found',
+        'No active session',
         404
       )
     }
 
-    // IMPORTANT:
-    // keep cart items
-    // only move to billing
+    // newest session
+    const current =
+      sessions[0]
+
+    // cancel duplicates
+    if (
+      sessions.length > 1
+    ) {
+
+      const oldIds =
+        sessions
+          .slice(1)
+          .map(
+            (s: any) =>
+              s.id
+          )
+
+      await supabaseAdmin
+        .from(
+          'trolley_sessions'
+        )
+        .update({
+          status:
+            'cancelled'
+        })
+        .in('id', oldIds)
+    }
+
+    // Move current session to billing
     await supabaseAdmin
-      .from('trolley_sessions')
+      .from(
+        'trolley_sessions'
+      )
       .update({
-        status: 'billing'
+        status:
+          'billing'
       })
-      .eq('id', session.id)
+      .eq(
+        'id',
+        current.id
+      )
 
     return ok({
       success: true,
-      sessionId: session.id,
+      trolley:
+        trolleyId,
+      sessionId:
+        current.id,
       redirect:
-        `/customer/payment/${session.id}`,
+        `/customer/payment/${current.id}`,
       message:
         'Proceed to payment'
     })
@@ -175,10 +221,12 @@ export async function DELETE(
 ) {
   try {
 
-    const { sessionId } = params
+    const { sessionId } =
+      params
 
-    const { item_id } =
-      await req.json()
+    const {
+      item_id
+    } = await req.json()
 
     if (!item_id) {
       return err(
@@ -189,9 +237,14 @@ export async function DELETE(
 
     const { error } =
       await supabaseAdmin
-        .from('scanned_items')
+        .from(
+          'scanned_items'
+        )
         .delete()
-        .eq('id', item_id)
+        .eq(
+          'id',
+          item_id
+        )
         .eq(
           'session_id',
           sessionId
