@@ -9,7 +9,7 @@ import {
 
 // =====================================================
 // GET /api/bill/[sessionId]
-// View bill details for website
+// View bill details
 // =====================================================
 export async function GET(
   _req: NextRequest,
@@ -98,9 +98,10 @@ export async function GET(
 
 // =====================================================
 // POST /api/bill/T002
-// Checkout barcode from ESP32
-// Works for multiple trolleys simultaneously
-// Only affects that trolley
+// Checkout barcode scanned
+// KEEP ITEMS
+// Move active session -> billing
+// Redirect to payment page
 // =====================================================
 export async function POST(
   _req: NextRequest,
@@ -113,7 +114,7 @@ export async function POST(
         .trim()
         .toUpperCase()
 
-    // Find this trolley active sessions only
+    // Find active sessions for THIS trolley
     const {
       data: sessions,
       error
@@ -147,11 +148,11 @@ export async function POST(
       )
     }
 
-    // newest session
+    // newest active session
     const current =
       sessions[0]
 
-    // cancel duplicates
+    // cancel duplicate active sessions
     if (
       sessions.length > 1
     ) {
@@ -175,7 +176,9 @@ export async function POST(
         .in('id', oldIds)
     }
 
-    // Move current session to billing
+    // IMPORTANT:
+    // DO NOT DELETE CART ITEMS
+
     await supabaseAdmin
       .from(
         'trolley_sessions'
@@ -191,10 +194,10 @@ export async function POST(
 
     return ok({
       success: true,
-      trolley:
-        trolleyId,
       sessionId:
         current.id,
+      trolley:
+        trolleyId,
       redirect:
         `/customer/payment/${current.id}`,
       message:
@@ -213,7 +216,7 @@ export async function POST(
 
 // =====================================================
 // DELETE /api/bill/[sessionId]
-// Remove item manually from website
+// Remove item manually from billing page
 // =====================================================
 export async function DELETE(
   req: NextRequest,
