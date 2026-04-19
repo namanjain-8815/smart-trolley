@@ -1,8 +1,8 @@
 import { NextRequest } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
-import { ok, err, calculateBillTotals, generateUpiLink } from '@/lib/apiHelpers'
+import { ok, err } from '@/lib/apiHelpers'
 
-// GET /api/bill/[sessionId] - returns full bill for a session
+// GET /api/bill/T002
 export async function GET(
   _req: NextRequest,
   { params }: { params: Promise<{ sessionId: string }> }
@@ -10,69 +10,50 @@ export async function GET(
   try {
     const { sessionId } = await params
 
-    const { data: session, error: sessionError } = await supabaseAdmin
+    // First try direct session id
+    let { data: session } = await supabaseAdmin
       .from('trolley_sessions')
       .select('*')
       .eq('id', sessionId)
       .single()
 
-    if (sessionError || !session) return err('Session not found', 404)
+    // If not found, treat as trolley_id
+    if (!session) {
+      const res = await supabaseAdmin
+        .from('trolley_sessions')
+        .select('*')
+        .eq('trolley_id', sessionId)
+        .eq('status', 'active')
+        .single()
 
-    const { data: items, error: itemsError } = await supabaseAdmin
-      .from('scanned_items')
-      .select(`
-        id, quantity, unit_price, gst_percent, discount_percent,
-        gst_amount, discount_amount, subtotal, verified, weight_expected, created_at,
-        products ( id, name, barcode, weight_grams )
-      `)
-      .eq('session_id', sessionId)
-      .order('created_at', { ascending: true })
+      session = res.data
+    }
 
-    if (itemsError) throw itemsError
+    if (!session)
+      return err('Session not found', 404)
 
-    const totals = calculateBillTotals(
-      (items || []).map(i => ({
-        quantity: i.quantity,
-        unit_price: i.unit_price,
-        gst_percent: i.gst_percent,
-        discount_percent: i.discount_percent,
-      }))
-    )
-
-    const upiLink = generateUpiLink(totals.grandTotal, sessionId)
-
-    return ok({
-      session,
-      items: items || [],
-      totals,
-      upiLink,
-    })
-  } catch (e: unknown) {
-    const message = e instanceof Error ? e.message : 'Failed to get bill'
-    return err(message, 500)
-  }
-}
-
-// DELETE /api/bill/[sessionId] - remove a scanned item
-export async function DELETE(
-  req: NextRequest,
-  { params }: { params: Promise<{ sessionId: string }> }
-) {
-  try {
-    const { sessionId } = await params
-    const { item_id } = await req.json()
-    if (!item_id) return err('item_id is required')
-
-    const { error } = await supabaseAdmin
+    // clear items
+    await supabaseAdmin
       .from('scanned_items')
       .delete()
-      .eq('id', item_id)
-      .eq('session_id', sessionId)
+      .eq('session_id', session.id)
 
-    if (error) throw error
-    return ok({ message: 'Item removed from bill' })
+    // complete session
+    await supabaseAdmin
+      .from('trolley_sessions')
+      .update({ status: 'completed' })
+      .eq('id', session.id)
+
+    return ok({
+      success: true,
+      message: 'Checkout complete'
+    })
+
   } catch (e: unknown) {
-    const message = e instanceof Error ? e.message : 'Failed to remove item'
+
+    const message =
+      e instanceof Error ? e.message : 'Checkout failed'
+
     return err(message, 500)
   }
 }
