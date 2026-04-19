@@ -10,38 +10,40 @@ import {
 // =====================================================
 // HELPER
 // Find session by:
-// 1. real session UUID
+// 1. UUID session id
 // 2. trolley id like T001 / T002
 // =====================================================
 async function findSession(
   value: string
 ) {
-  // Try by session UUID
+  const key =
+    value.trim()
+
+  // Try session UUID first
   const direct =
     await supabaseAdmin
       .from('trolley_sessions')
       .select('*')
-      .eq('id', value)
-      .single()
+      .eq('id', key)
+      .maybeSingle()
 
   if (direct.data) {
     return direct.data
   }
 
-  // Try by trolley id
+  // Try trolley id
   const trolley =
     await supabaseAdmin
       .from('trolley_sessions')
       .select('*')
       .eq(
         'trolley_id',
-        value
-          .trim()
-          .toUpperCase()
+        key.toUpperCase()
       )
       .in('status', [
         'active',
-        'billing'
+        'billing',
+        'paid'
       ])
       .order(
         'created_at',
@@ -50,16 +52,16 @@ async function findSession(
         }
       )
       .limit(1)
-      .single()
+      .maybeSingle()
 
   return trolley.data
 }
 
 // =====================================================
 // GET
-// Works with BOTH:
+// Works for:
 // /api/bill/T002
-// /api/bill/uuid-session-id
+// /api/bill/uuid
 // =====================================================
 export async function GET(
   _req: NextRequest,
@@ -80,40 +82,42 @@ export async function GET(
       )
     }
 
-    const { data: items, error } =
-      await supabaseAdmin
-        .from(
-          'scanned_items'
-        )
-        .select(`
+    const {
+      data: items,
+      error
+    } = await supabaseAdmin
+      .from(
+        'scanned_items'
+      )
+      .select(`
+        id,
+        quantity,
+        unit_price,
+        gst_percent,
+        discount_percent,
+        gst_amount,
+        discount_amount,
+        subtotal,
+        verified,
+        weight_expected,
+        created_at,
+        products (
           id,
-          quantity,
-          unit_price,
-          gst_percent,
-          discount_percent,
-          gst_amount,
-          discount_amount,
-          subtotal,
-          verified,
-          weight_expected,
-          created_at,
-          products (
-            id,
-            name,
-            barcode,
-            weight_grams
-          )
-        `)
-        .eq(
-          'session_id',
-          session.id
+          name,
+          barcode,
+          weight_grams
         )
-        .order(
-          'created_at',
-          {
-            ascending: true
-          }
-        )
+      `)
+      .eq(
+        'session_id',
+        session.id
+      )
+      .order(
+        'created_at',
+        {
+          ascending: true
+        }
+      )
 
     if (error) throw error
 
@@ -164,6 +168,7 @@ export async function GET(
 // POST
 // Checkout barcode scan
 // /api/bill/T002
+// Moves latest trolley session -> billing
 // =====================================================
 export async function POST(
   _req: NextRequest,
@@ -188,10 +193,10 @@ export async function POST(
         'trolley_id',
         trolleyId
       )
-      .eq(
-        'status',
-        'active'
-      )
+      .in('status', [
+        'active',
+        'billing'
+      ])
       .order(
         'created_at',
         {
@@ -206,16 +211,15 @@ export async function POST(
       sessions.length === 0
     ) {
       return err(
-        'No active session',
+        'No session found',
         404
       )
     }
 
-    // newest active session
     const current =
       sessions[0]
 
-    // cancel duplicate active sessions
+    // close duplicate older active rows
     if (
       sessions.length > 1
     ) {
@@ -239,8 +243,8 @@ export async function POST(
         .in('id', oldIds)
     }
 
-    // KEEP ITEMS
-    // only billing mode
+    // IMPORTANT:
+    // keep cart items
     await supabaseAdmin
       .from(
         'trolley_sessions'
@@ -278,7 +282,7 @@ export async function POST(
 
 // =====================================================
 // DELETE
-// remove item manually
+// Remove item manually
 // =====================================================
 export async function DELETE(
   req: NextRequest,
