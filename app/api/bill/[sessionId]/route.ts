@@ -8,8 +8,58 @@ import {
 } from '@/lib/apiHelpers'
 
 // =====================================================
-// GET /api/bill/[sessionId]
-// View bill details
+// HELPER
+// Find session by:
+// 1. real session UUID
+// 2. trolley id like T001 / T002
+// =====================================================
+async function findSession(
+  value: string
+) {
+  // Try by session UUID
+  const direct =
+    await supabaseAdmin
+      .from('trolley_sessions')
+      .select('*')
+      .eq('id', value)
+      .single()
+
+  if (direct.data) {
+    return direct.data
+  }
+
+  // Try by trolley id
+  const trolley =
+    await supabaseAdmin
+      .from('trolley_sessions')
+      .select('*')
+      .eq(
+        'trolley_id',
+        value
+          .trim()
+          .toUpperCase()
+      )
+      .in('status', [
+        'active',
+        'billing'
+      ])
+      .order(
+        'created_at',
+        {
+          ascending: false
+        }
+      )
+      .limit(1)
+      .single()
+
+  return trolley.data
+}
+
+// =====================================================
+// GET
+// Works with BOTH:
+// /api/bill/T002
+// /api/bill/uuid-session-id
 // =====================================================
 export async function GET(
   _req: NextRequest,
@@ -17,22 +67,24 @@ export async function GET(
 ) {
   try {
 
-    const { sessionId } = params
+    const key =
+      params.sessionId
 
-    const { data: session, error: sessionError } =
-      await supabaseAdmin
-        .from('trolley_sessions')
-        .select('*')
-        .eq('id', sessionId)
-        .single()
+    const session =
+      await findSession(key)
 
-    if (sessionError || !session) {
-      return err('Session not found', 404)
+    if (!session) {
+      return err(
+        'Session not found',
+        404
+      )
     }
 
-    const { data: items, error: itemsError } =
+    const { data: items, error } =
       await supabaseAdmin
-        .from('scanned_items')
+        .from(
+          'scanned_items'
+        )
         .select(`
           id,
           quantity,
@@ -52,35 +104,47 @@ export async function GET(
             weight_grams
           )
         `)
-        .eq('session_id', sessionId)
-        .order('created_at', {
-          ascending: true
-        })
+        .eq(
+          'session_id',
+          session.id
+        )
+        .order(
+          'created_at',
+          {
+            ascending: true
+          }
+        )
 
-    if (itemsError) throw itemsError
+    if (error) throw error
 
     const totals =
       calculateBillTotals(
-        (items || []).map((i: any) => ({
-          quantity: i.quantity,
-          unit_price: i.unit_price,
-          gst_percent: i.gst_percent,
-          discount_percent:
-            i.discount_percent
-        }))
+        (items || []).map(
+          (i: any) => ({
+            quantity:
+              i.quantity,
+            unit_price:
+              i.unit_price,
+            gst_percent:
+              i.gst_percent,
+            discount_percent:
+              i.discount_percent
+          })
+        )
       )
 
     const upiLink =
       generateUpiLink(
         totals.grandTotal,
-        sessionId
+        session.id
       )
 
     return ok({
       success: true,
       data: {
         session,
-        items: items || [],
+        items:
+          items || [],
         totals,
         upiLink
       }
@@ -97,11 +161,9 @@ export async function GET(
 }
 
 // =====================================================
-// POST /api/bill/T002
-// Checkout barcode scanned
-// KEEP ITEMS
-// Move active session -> billing
-// Redirect to payment page
+// POST
+// Checkout barcode scan
+// /api/bill/T002
 // =====================================================
 export async function POST(
   _req: NextRequest,
@@ -114,12 +176,13 @@ export async function POST(
         .trim()
         .toUpperCase()
 
-    // Find active sessions for THIS trolley
     const {
       data: sessions,
       error
     } = await supabaseAdmin
-      .from('trolley_sessions')
+      .from(
+        'trolley_sessions'
+      )
       .select('*')
       .eq(
         'trolley_id',
@@ -176,9 +239,8 @@ export async function POST(
         .in('id', oldIds)
     }
 
-    // IMPORTANT:
-    // DO NOT DELETE CART ITEMS
-
+    // KEEP ITEMS
+    // only billing mode
     await supabaseAdmin
       .from(
         'trolley_sessions'
@@ -194,10 +256,10 @@ export async function POST(
 
     return ok({
       success: true,
-      sessionId:
-        current.id,
       trolley:
         trolleyId,
+      sessionId:
+        current.id,
       redirect:
         `/customer/payment/${current.id}`,
       message:
@@ -215,8 +277,8 @@ export async function POST(
 }
 
 // =====================================================
-// DELETE /api/bill/[sessionId]
-// Remove item manually from billing page
+// DELETE
+// remove item manually
 // =====================================================
 export async function DELETE(
   req: NextRequest,
@@ -224,8 +286,18 @@ export async function DELETE(
 ) {
   try {
 
-    const { sessionId } =
-      params
+    const key =
+      params.sessionId
+
+    const session =
+      await findSession(key)
+
+    if (!session) {
+      return err(
+        'Session not found',
+        404
+      )
+    }
 
     const {
       item_id
@@ -250,7 +322,7 @@ export async function DELETE(
         )
         .eq(
           'session_id',
-          sessionId
+          session.id
         )
 
     if (error) throw error
