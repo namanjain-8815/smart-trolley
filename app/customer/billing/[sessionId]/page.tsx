@@ -8,7 +8,6 @@ import {
 } from 'react'
 
 import {
-  useRouter,
   useParams
 } from 'next/navigation'
 
@@ -47,21 +46,16 @@ interface Totals {
 
 export default function BillingPage() {
 
-  const router = useRouter()
   const params = useParams()
 
   const sessionId =
     params.sessionId as string
 
   const [session, setSession] =
-    useState<Session | null>(
-      null
-    )
+    useState<Session | null>(null)
 
   const [items, setItems] =
-    useState<
-      ScannedItem[]
-    >([])
+    useState<ScannedItem[]>([])
 
   const [totals, setTotals] =
     useState<Totals>({
@@ -81,7 +75,7 @@ export default function BillingPage() {
     useRef('T002')
 
 // =====================================================
-// FIND REAL TROLLEY
+// LOAD FIRST SESSION
 // =====================================================
 
   const loadFirst =
@@ -91,7 +85,8 @@ export default function BillingPage() {
 
       const res =
         await fetch(
-          `/api/bill/${sessionId}`
+          `/api/bill/${sessionId}`,
+          { cache: 'no-store' }
         )
 
       const json =
@@ -101,13 +96,12 @@ export default function BillingPage() {
         json?.data?.session
       ) {
 
-        const s =
-          json.data.session
-
         trolleyRef.current =
-          s.trolley_id
+          json.data.session.trolley_id
 
-        setSession(s)
+        setSession(
+          json.data.session
+        )
       }
 
     } catch {}
@@ -115,7 +109,7 @@ export default function BillingPage() {
   }, [sessionId])
 
 // =====================================================
-// FETCH USING TROLLEY ID
+// FETCH BILL
 // =====================================================
 
   const fetchBill =
@@ -128,7 +122,8 @@ export default function BillingPage() {
 
       const res =
         await fetch(
-          `/api/bill/${trolleyId}`
+          `/api/bill/${trolleyId}`,
+          { cache: 'no-store' }
         )
 
       const json =
@@ -144,6 +139,34 @@ export default function BillingPage() {
       const newSession =
         json.data.session
 
+      // =====================================
+      // REDIRECT FIRST
+      // =====================================
+
+      if (
+        newSession.status ===
+        'billing'
+      ) {
+        window.location.replace(
+          `/customer/payment/${newSession.id}`
+        )
+        return
+      }
+
+      if (
+        newSession.status ===
+        'paid'
+      ) {
+        window.location.replace(
+          `/customer/receipt/${newSession.id}`
+        )
+        return
+      }
+
+      // =====================================
+      // UPDATE UI
+      // =====================================
+
       setSession(newSession)
 
       setItems(
@@ -153,32 +176,6 @@ export default function BillingPage() {
       setTotals(
         json.data.totals
       )
-
-      // =================================
-      // REDIRECTS
-      // =================================
-
-      if (
-        newSession.status ===
-        'billing'
-      ) {
-
-        window.location.href =
-          `/customer/payment/${newSession.id}`
-
-        return
-      }
-
-      if (
-        newSession.status ===
-        'paid'
-      ) {
-
-        window.location.href =
-          `/customer/receipt/${newSession.id}`
-
-        return
-      }
 
     } catch (e: any) {
 
@@ -199,9 +196,7 @@ export default function BillingPage() {
 // =====================================================
 
   useEffect(() => {
-
     loadFirst()
-
   }, [loadFirst])
 
   useEffect(() => {
@@ -302,8 +297,7 @@ export default function BillingPage() {
 
           <strong>
             {
-              item.products
-                ?.name
+              item.products?.name
             }
           </strong>
 
