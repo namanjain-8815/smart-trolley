@@ -1,7 +1,20 @@
 'use client'
 
-import { useState, useEffect, useCallback, useRef } from 'react'
-import { useRouter, useParams } from 'next/navigation'
+import {
+  useState,
+  useEffect,
+  useCallback,
+  useRef
+} from 'react'
+
+import {
+  useRouter,
+  useParams
+} from 'next/navigation'
+
+// =====================================================
+// TYPES
+// =====================================================
 
 interface Product {
   name: string
@@ -11,13 +24,7 @@ interface Product {
 interface ScannedItem {
   id: string
   quantity: number
-  unit_price: number
-  gst_percent: number
-  discount_percent: number
-  gst_amount: number
-  discount_amount: number
   subtotal: number
-  verified: boolean
   products: Product
 }
 
@@ -36,373 +43,263 @@ interface Totals {
   grandTotal: number
 }
 
-type ScanMode = 'ADD' | 'REMOVE'
-
-interface Toast {
-  id: number
-  message: string
-  type: 'success' | 'danger' | 'warning'
-}
+// =====================================================
 
 export default function BillingPage() {
-  const params = useParams()
-  const sessionId = params.sessionId as string
+
   const router = useRouter()
+  const params = useParams()
 
-  const [session, setSession] = useState<Session | null>(null)
-  const [items, setItems] = useState<ScannedItem[]>([])
-  const [totals, setTotals] = useState<Totals>({
-    subtotal: 0,
-    totalDiscount: 0,
-    totalGst: 0,
-    grandTotal: 0
-  })
+  const sessionId =
+    params.sessionId as string
 
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
-  const [removing, setRemoving] = useState<string | null>(null)
-  const [lastChanged, setLastChanged] = useState<string | null>(null)
-  const [mode, setMode] = useState<ScanMode>('ADD')
-  const [toasts, setToasts] = useState<Toast[]>([])
+  const [session, setSession] =
+    useState<Session | null>(
+      null
+    )
 
-  const prevItemsRef = useRef<ScannedItem[]>([])
-  const toastCountRef = useRef(0)
-  const trolleyIdRef = useRef<string | null>(null)
-  const isFirstFetch = useRef(true)
+  const [items, setItems] =
+    useState<
+      ScannedItem[]
+    >([])
 
-  // =====================================================
-  // TOAST
-  // =====================================================
+  const [totals, setTotals] =
+    useState<Totals>({
+      subtotal: 0,
+      totalDiscount: 0,
+      totalGst: 0,
+      grandTotal: 0
+    })
 
-  const showToast = useCallback(
-    (message: string, type: Toast['type']) => {
-      const id = ++toastCountRef.current
+  const [loading, setLoading] =
+    useState(true)
 
-      setToasts(prev => [...prev, { id, message, type }])
+  const [error, setError] =
+    useState('')
 
-      setTimeout(() => {
-        setToasts(prev => prev.filter(t => t.id !== id))
-      }, 3000)
-    },
-    []
-  )
+  const trolleyRef =
+    useRef('T002')
 
-  // =====================================================
-  // FLASH ROW
-  // =====================================================
+// =====================================================
+// FIND REAL TROLLEY
+// =====================================================
 
-  const flashRow = useCallback((id: string) => {
-    setLastChanged(id)
+  const loadFirst =
+    useCallback(async () => {
 
-    setTimeout(() => {
-      setLastChanged(prev =>
-        prev === id ? null : prev
-      )
-    }, 2500)
-  }, [])
+    try {
 
-  // =====================================================
-  // FETCH MODE
-  // =====================================================
-
-  const fetchMode = useCallback(
-    async (trolleyId: string) => {
-      try {
-        const res = await fetch(
-          `/api/mode?trolley_id=${encodeURIComponent(
-            trolleyId
-          )}`
+      const res =
+        await fetch(
+          `/api/bill/${sessionId}`
         )
 
-        const json = await res.json()
+      const json =
+        await res.json()
 
-        if (!res.ok || !json.data?.mode) return
+      if (
+        json?.data?.session
+      ) {
 
-        const newMode: ScanMode =
-          json.data.mode
+        const s =
+          json.data.session
 
-        setMode(prev => {
-          if (prev !== newMode) {
-            if (newMode === 'REMOVE') {
-              showToast(
-                '🔴 Switched to REMOVE mode',
-                'danger'
-              )
-            } else {
-              showToast(
-                '🟢 Switched to ADD mode',
-                'success'
-              )
-            }
-          }
+        trolleyRef.current =
+          s.trolley_id
 
-          return newMode
-        })
-      } catch {}
-    },
-    [showToast]
-  )
+        setSession(s)
+      }
 
-  // =====================================================
-  // FETCH BILL
-  // =====================================================
+    } catch {}
 
-  const fetchBill = useCallback(async () => {
+  }, [sessionId])
+
+// =====================================================
+// FETCH USING TROLLEY ID
+// =====================================================
+
+  const fetchBill =
+    useCallback(async () => {
+
     try {
-      const res = await fetch(
-        `/api/bill/${sessionId}`
-      )
 
-      const json = await res.json()
+      const trolleyId =
+        trolleyRef.current
+
+      const res =
+        await fetch(
+          `/api/bill/${trolleyId}`
+        )
+
+      const json =
+        await res.json()
 
       if (!res.ok) {
         throw new Error(
-          json.error || 'Failed'
+          json.error ||
+          'Failed'
         )
       }
 
-      const newSession: Session =
+      const newSession =
         json.data.session
 
-      const curr: ScannedItem[] =
-        json.data.items || []
-
       setSession(newSession)
-      setTotals(json.data.totals)
 
-      if (newSession?.trolley_id) {
-        trolleyIdRef.current =
-          newSession.trolley_id
-      }
+      setItems(
+        json.data.items || []
+      )
 
-      const prev =
-        prevItemsRef.current
+      setTotals(
+        json.data.totals
+      )
 
-      // Skip first diff
-      if (!isFirstFetch.current) {
-
-        const prevMap = new Map(
-          prev.map(i => [i.id, i])
-        )
-
-        const currMap = new Map(
-          curr.map(i => [i.id, i])
-        )
-
-        // Removed
-        for (const [id, item] of prevMap) {
-          if (!currMap.has(id)) {
-            showToast(
-              `🗑️ Removed: ${item.products?.name}`,
-              'danger'
-            )
-          }
-        }
-
-        // Added / qty changed
-        for (const [id, item] of currMap) {
-
-          const oldItem =
-            prevMap.get(id)
-
-          if (!oldItem) {
-            showToast(
-              `✅ Added: ${item.products?.name}`,
-              'success'
-            )
-
-            flashRow(id)
-
-          } else if (
-            item.quantity >
-            oldItem.quantity
-          ) {
-
-            showToast(
-              `✅ Added: ${item.products?.name}`,
-              'success'
-            )
-
-            flashRow(id)
-
-          } else if (
-            item.quantity <
-            oldItem.quantity
-          ) {
-
-            showToast(
-              `🗑️ Removed: ${item.products?.name}`,
-              'warning'
-            )
-
-            flashRow(id)
-          }
-        }
-      }
-
-      isFirstFetch.current = false
-      prevItemsRef.current = curr
-      setItems(curr)
-
-      // =====================================
-      // IMPORTANT REDIRECTS
-      // =====================================
+      // =================================
+      // REDIRECTS
+      // =================================
 
       if (
-        newSession.status === 'billing'
+        newSession.status ===
+        'billing'
       ) {
-        router.push(
-          `/customer/payment/${sessionId}`
-        )
+
+        window.location.href =
+          `/customer/payment/${newSession.id}`
+
         return
       }
 
       if (
-        newSession.status === 'paid'
+        newSession.status ===
+        'paid'
       ) {
-        router.push(
-          `/customer/receipt/${sessionId}`
-        )
+
+        window.location.href =
+          `/customer/receipt/${newSession.id}`
+
         return
       }
 
     } catch (e: any) {
+
       setError(
         e.message ||
-          'Failed to load bill'
+        'Load failed'
       )
+
     } finally {
+
       setLoading(false)
     }
-  }, [
-    sessionId,
-    router,
-    showToast,
-    flashRow
-  ])
 
-  // =====================================================
-  // POLLING
-  // =====================================================
+  }, [])
+
+// =====================================================
+// START
+// =====================================================
 
   useEffect(() => {
+
+    loadFirst()
+
+  }, [loadFirst])
+
+  useEffect(() => {
+
     fetchBill()
 
-    const id = setInterval(
-      fetchBill,
-      3000
-    )
+    const id =
+      setInterval(
+        fetchBill,
+        1000
+      )
 
-    return () => clearInterval(id)
+    return () =>
+      clearInterval(id)
+
   }, [fetchBill])
 
-  useEffect(() => {
-    const id = setInterval(() => {
-      if (trolleyIdRef.current) {
-        fetchMode(
-          trolleyIdRef.current
-        )
-      }
-    }, 2000)
-
-    return () => clearInterval(id)
-  }, [fetchMode])
-
-  // =====================================================
-  // REMOVE ITEM BUTTON
-  // =====================================================
+// =====================================================
+// REMOVE ITEM
+// =====================================================
 
   async function removeItem(
     itemId: string
   ) {
-    if (
-      !confirm(
-        'Remove this item?'
-      )
+
+    await fetch(
+      `/api/bill/${session?.id}`,
+      {
+        method: 'DELETE',
+        headers: {
+          'Content-Type':
+            'application/json'
+        },
+        body: JSON.stringify({
+          item_id: itemId
+        })
+      }
     )
-      return
 
-    setRemoving(itemId)
-
-    try {
-      const res = await fetch(
-        `/api/bill/${sessionId}`,
-        {
-          method: 'DELETE',
-          headers: {
-            'Content-Type':
-              'application/json'
-          },
-          body: JSON.stringify({
-            item_id: itemId
-          })
-        }
-      )
-
-      if (res.ok) fetchBill()
-
-    } finally {
-      setRemoving(null)
-    }
+    fetchBill()
   }
 
-  // =====================================================
-  // LOADING
-  // =====================================================
+// =====================================================
+// UI
+// =====================================================
 
   if (loading) {
-    return (
-      <div
-        style={{
-          minHeight: '100vh',
-          display: 'flex',
-          alignItems:
-            'center',
-          justifyContent:
-            'center'
-        }}
-      >
-        Loading...
-      </div>
-    )
+    return <div>Loading...</div>
   }
 
-  // =====================================================
-  // UI
-  // =====================================================
-
   return (
+
     <div
       style={{
-        padding: '30px',
+        padding: 30,
         fontFamily:
           'sans-serif'
       }}
     >
+
       <h1>
-        SmartTrolley Billing
+        SmartTrolley
       </h1>
+
+      <h2>
+        Trolley:
+        {session?.trolley_id}
+      </h2>
+
+      <p>
+        Status:
+        {session?.status}
+      </p>
 
       {error && (
         <p>{error}</p>
       )}
 
+      <hr />
+
       <h2>
         Cart (
-        {items.length} items)
+        {items.length}
+        )
       </h2>
 
       {items.map(item => (
+
         <div
           key={item.id}
           style={{
             border:
               '1px solid #ddd',
-            padding: '10px',
-            marginBottom:
-              '10px'
+            padding: 10,
+            marginBottom: 10
           }}
         >
+
           <strong>
             {
               item.products
@@ -418,9 +315,7 @@ export default function BillingPage() {
           <br />
 
           ₹
-          {item.subtotal.toFixed(
-            2
-          )}
+          {item.subtotal}
 
           <br />
 
@@ -433,28 +328,28 @@ export default function BillingPage() {
           >
             Remove
           </button>
+
         </div>
       ))}
 
       <hr />
 
-      <h3>
-        Total:
-        ₹
-        {totals.grandTotal.toFixed(
-          2
-        )}
-      </h3>
+      <h2>
+        Total ₹
+        {
+          totals.grandTotal
+        }
+      </h2>
 
       <button
         onClick={() =>
-          router.push(
-            `/customer/payment/${sessionId}`
-          )
+          window.location.href =
+          `/customer/payment/${session?.id}`
         }
       >
         Proceed to Pay
       </button>
+
     </div>
   )
 }
