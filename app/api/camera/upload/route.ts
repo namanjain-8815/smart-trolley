@@ -1,4 +1,7 @@
 import { NextResponse } from "next/server";
+import { Buffer } from "buffer";
+
+export const runtime = "nodejs";
 
 export async function POST(req: Request) {
   try {
@@ -15,10 +18,12 @@ export async function POST(req: Request) {
       );
     }
 
+    // Convert image to base64
     const bytes = await image.arrayBuffer();
     const base64 = Buffer.from(bytes).toString("base64");
 
-    const response = await fetch(
+    // Send image to Roboflow Workflow
+    const rfResponse = await fetch(
       "https://serverless.roboflow.com/snikas-workspace/workflows/detect-count-and-visualize",
       {
         method: "POST",
@@ -37,10 +42,13 @@ export async function POST(req: Request) {
       }
     );
 
-    const data = await response.json();
+    const rfData = await rfResponse.json();
 
+    // Read detected count
     const camera_count =
-      data?.outputs?.[0]?.count_objects ?? 0;
+      rfData?.outputs?.[0]?.count_objects ??
+      rfData?.count_objects ??
+      0;
 
     const mismatch = camera_count !== cart_count;
 
@@ -50,10 +58,14 @@ export async function POST(req: Request) {
       scanned_count: cart_count,
       camera_count,
       mismatch,
+      roboflow_response: rfData,
     });
   } catch (error: any) {
     return NextResponse.json(
-      { error: error.message || "Server error" },
+      {
+        success: false,
+        error: error.message || "Server Error",
+      },
       { status: 500 }
     );
   }
