@@ -1,59 +1,63 @@
-import { NextRequest } from 'next/server'
+import { NextResponse } from "next/server";
 
-let latestImages: Record<string, string> = {}
-
-export async function POST(req: NextRequest) {
+export async function POST(req) {
   try {
-    const form = await req.formData()
+    const formData = await req.formData();
 
-    const trolley_id =
-      String(form.get('trolley_id'))
+    const image = formData.get("image");
+    const trolley_id = formData.get("trolley_id");
+    const cart_count = Number(formData.get("cart_count") || 0);
 
-    const file =
-      form.get('image') as File
-
-    if (!file) {
-      return Response.json({
-        success: false,
-        error: 'No image'
-      })
+    if (!image) {
+      return NextResponse.json({ error: "No image uploaded" }, { status: 400 });
     }
 
-    const bytes =
-      await file.arrayBuffer()
+    // convert image to base64
+    const bytes = await image.arrayBuffer();
+    const buffer = Buffer.from(bytes);
+    const base64 = buffer.toString("base64");
 
-    const base64 =
-      Buffer.from(bytes).toString(
-        'base64'
-      )
+    // Roboflow API Call
+    const rf = await fetch(
+      "https://serverless.roboflow.com/snikas-workspace/workflows/detect-count-and-visualize",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          api_key: "YOUR_ROBOFLOW_API_KEY",
+          inputs: {
+            image: {
+              type: "base64",
+              value: base64
+            }
+          }
+        })
+      }
+    );
 
-    latestImages[trolley_id] =
-      `data:image/jpeg;base64,${base64}`
+    const data = await rf.json();
 
-    return Response.json({
-      success: true
-    })
+    let camera_count = 0;
 
-  } catch (e: any) {
-    return Response.json({
-      success: false,
-      error: e.message
-    })
+    if (data.outputs && data.outputs[0]) {
+      camera_count = data.outputs[0].count_objects || 0;
+    }
+
+    const mismatch = camera_count !== cart_count;
+
+    return NextResponse.json({
+      success: true,
+      trolley_id,
+      scanned_count: cart_count,
+      camera_count,
+      mismatch,
+      roboflow: data
+    });
+  } catch (error) {
+    return NextResponse.json({
+      error: error.message
+    });
   }
-}
-
-export async function GET(
-  req: NextRequest
-) {
-  const trolley_id =
-    req.nextUrl.searchParams.get(
-      'trolley_id'
-    ) || 'T002'
-
-  return Response.json({
-    success: true,
-    image:
-      latestImages[trolley_id] ||
-      null
-  })
 }
