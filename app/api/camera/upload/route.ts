@@ -1,49 +1,46 @@
 import { NextResponse } from "next/server";
 
-export async function POST(req) {
+export async function POST(req: Request) {
   try {
     const formData = await req.formData();
 
-    const image = formData.get("image");
-    const trolley_id = formData.get("trolley_id");
+    const image = formData.get("image") as File | null;
+    const trolley_id = formData.get("trolley_id") as string | null;
     const cart_count = Number(formData.get("cart_count") || 0);
 
     if (!image) {
-      return NextResponse.json({ error: "No image uploaded" }, { status: 400 });
+      return NextResponse.json(
+        { error: "No image uploaded" },
+        { status: 400 }
+      );
     }
 
-    // convert image to base64
     const bytes = await image.arrayBuffer();
-    const buffer = Buffer.from(bytes);
-    const base64 = buffer.toString("base64");
+    const base64 = Buffer.from(bytes).toString("base64");
 
-    // Roboflow API Call
-    const rf = await fetch(
+    const response = await fetch(
       "https://serverless.roboflow.com/snikas-workspace/workflows/detect-count-and-visualize",
       {
         method: "POST",
         headers: {
-          "Content-Type": "application/json"
+          "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          api_key: "YOUR_ROBOFLOW_API_KEY",
+          api_key: "79cVq41jzxUFbmLltSOF",
           inputs: {
             image: {
               type: "base64",
-              value: base64
-            }
-          }
-        })
+              value: base64,
+            },
+          },
+        }),
       }
     );
 
-    const data = await rf.json();
+    const data = await response.json();
 
-    let camera_count = 0;
-
-    if (data.outputs && data.outputs[0]) {
-      camera_count = data.outputs[0].count_objects || 0;
-    }
+    const camera_count =
+      data?.outputs?.[0]?.count_objects ?? 0;
 
     const mismatch = camera_count !== cart_count;
 
@@ -53,11 +50,11 @@ export async function POST(req) {
       scanned_count: cart_count,
       camera_count,
       mismatch,
-      roboflow: data
     });
-  } catch (error) {
-    return NextResponse.json({
-      error: error.message
-    });
+  } catch (error: any) {
+    return NextResponse.json(
+      { error: error.message || "Server error" },
+      { status: 500 }
+    );
   }
 }
