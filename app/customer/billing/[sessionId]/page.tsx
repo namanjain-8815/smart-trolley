@@ -143,7 +143,7 @@ export default function BillingPage() {
       // REDIRECT FIRST
       // =====================================
 
-      if (
+      /*/if (
         newSession.status ===
         'billing'
       ) {
@@ -161,7 +161,7 @@ export default function BillingPage() {
           `/customer/receipt/${newSession.id}`
         )
         return
-      }
+      }*/
 
       // =====================================
       // UPDATE UI
