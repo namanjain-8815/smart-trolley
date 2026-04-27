@@ -1,12 +1,14 @@
 import { NextRequest } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
-import { ok, err } from '@/lib/apiHelpers'
+import { ok, err, calculateBillTotals, generateUpiLink } from '@/lib/apiHelpers'
 import { getMode, setMode } from '@/lib/trolleyMode'
 
-// ─── Special Mode Barcodes ────────────────────────────────────────────────────
-// These barcodes switch the trolley mode instead of adding/removing a product.
-const MODE_ADD_BARCODE    = 'MODE_ADD'    // Scan this barcode → ADD mode    (green)
+// ─── Special Control Barcodes ───────────────────────────────────────────────
+// These barcodes trigger special actions instead of adding/removing a product.
+const MODE_ADD_BARCODE    = 'Add'         // Scan this barcode → ADD mode    (green)
 const MODE_REMOVE_BARCODE = 'MODE_REMOVE' // Scan this barcode → REMOVE mode (red)
+const CHECKOUT_BARCODE    = 'Checkout'    // Scan this barcode → initiate checkout
+const CHECKOUT_BARCODE_ALT = 'CHECKOUT'   // Alternative all-caps variant
 
 // POST /api/scan
 // Body: { trolley_id, barcode }
@@ -16,7 +18,7 @@ export async function POST(req: NextRequest) {
   try {
     const { trolley_id, barcode } = await req.json()
 
-    // ── STEP 1: Intercept mode-switch barcodes ────────────────────────────────
+    // ── STEP 1: Intercept special control barcodes ───────────────────────────
     if (barcode === MODE_ADD_BARCODE) {
       setMode(trolley_id, 'ADD')
       return ok({ mode_switched: true, mode: 'ADD', message: 'Switched to ADD mode' })
@@ -25,6 +27,55 @@ export async function POST(req: NextRequest) {
     if (barcode === MODE_REMOVE_BARCODE) {
       setMode(trolley_id, 'REMOVE')
       return ok({ mode_switched: true, mode: 'REMOVE', message: 'Switched to REMOVE mode' })
+    }
+
+    if (barcode === CHECKOUT_BARCODE || barcode === CHECKOUT_BARCODE_ALT) {
+      // Find active session for this trolley
+      const { data: checkoutSession, error: csErr } = await supabaseAdmin
+        .from('trolley_sessions')
+        .select('id, status')
+        .eq('trolley_id', trolley_id)
+        .eq('status', 'active')
+        .single()
+
+      if (csErr || !checkoutSession) {
+        return err(`No active session found for trolley ${trolley_id}. Start a session first.`, 404)
+      }
+
+      // Get cart items to calculate totals
+      const { data: cartItems } = await supabaseAdmin
+        .from('scanned_items')
+        .select('quantity, unit_price, gst_percent, discount_percent')
+        .eq('session_id', checkoutSession.id)
+
+      if (!cartItems || cartItems.length === 0) {
+        return err('Cart is empty — add items before checking out.', 400)
+      }
+
+      const totals   = calculateBillTotals(cartItems)
+      const upiLink  = generateUpiLink(totals.grandTotal, checkoutSession.id)
+
+      // Mark session as checkout (same as manual "Proceed to Pay" flow)
+      await supabaseAdmin
+        .from('trolley_sessions')
+        .update({ status: 'checkout' })
+        .eq('id', checkoutSession.id)
+
+      // Upsert pending payment record
+      await supabaseAdmin
+        .from('payments')
+        .upsert(
+          { session_id: checkoutSession.id, amount: totals.grandTotal, status: 'pending' },
+          { onConflict: 'session_id' }
+        )
+
+      return ok({
+        checkout_initiated: true,
+        session_id: checkoutSession.id,
+        upiLink,
+        totals,
+        message: 'Checkout initiated — scan QR code to pay',
+      })
     }
 
     // ── STEP 2: Find active session ───────────────────────────────────────────
@@ -46,6 +97,8 @@ export async function POST(req: NextRequest) {
     const currentMode = getMode(trolley_id)
 
     if (currentMode === 'REMOVE') {
+      // One-time remove: reset mode back to ADD immediately after this scan
+      setMode(trolley_id, 'ADD')
       return handleRemove(session.id, barcode)
     }
 

@@ -50,11 +50,13 @@ export default function BillingPage() {
   const [mode, setMode] = useState<ScanMode>('ADD')
   const [toasts, setToasts] = useState<Toast[]>([])
 
-  const prevItemsRef   = useRef<ScannedItem[]>([])
-  const toastCountRef  = useRef(0)
-  const trolleyIdRef   = useRef<string | null>(null)
-  const isFirstFetch   = useRef(true)
-  const prevModeRef    = useRef<ScanMode>('ADD')
+  const prevItemsRef          = useRef<ScannedItem[]>([])
+  const toastCountRef         = useRef(0)
+  const trolleyIdRef          = useRef<string | null>(null)
+  const isFirstFetch          = useRef(true)
+  const prevModeRef           = useRef<ScanMode>('ADD')
+  const prevSessionStatusRef  = useRef<string>('active')
+  const checkoutRedirectedRef = useRef(false)
 
   // ── Toast helper ──────────────────────────────────────────────────────────
   const showToast = useCallback((message: string, type: Toast['type']) => {
@@ -137,6 +139,18 @@ export default function BillingPage() {
       setItems(curr)
 
       if (newSession.status === 'paid') router.push(`/customer/receipt/${sessionId}`)
+
+      // Detect scanner-triggered checkout: session flipped to 'checkout' while we were watching
+      if (newSession.status === 'checkout' && !checkoutRedirectedRef.current) {
+        checkoutRedirectedRef.current = true
+        const wasScanner = prevSessionStatusRef.current === 'active'
+        if (wasScanner && !isFirstFetch.current) {
+          showToast('🛒 Checkout initiated via scanner', 'success')
+        }
+        setTimeout(() => router.push(`/customer/payment/${sessionId}`), wasScanner ? 1200 : 0)
+      }
+
+      prevSessionStatusRef.current = newSession.status
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Failed to load bill')
     } finally {
@@ -233,8 +247,8 @@ export default function BillingPage() {
         </div>
         <p className="mode-banner-hint">
           {isAdd
-            ? 'Scan the REMOVE barcode to switch to remove mode'
-            : 'Scan the ADD (Checkout) barcode to switch back to add mode'}
+            ? 'Scan the REMOVE barcode to remove one item (auto-resets to ADD after scan)'
+            : '⚡ One-shot mode — scan a product to remove it, then mode resets to ADD'}
         </p>
       </div>
 
@@ -361,8 +375,8 @@ export default function BillingPage() {
               </p>
               <p style={{ fontSize: '0.8rem', lineHeight: 1.6, opacity: 0.85 }}>
                 {isAdd
-                  ? 'Scan any product barcode to add it to the cart. Scan the REMOVE barcode to switch modes.'
-                  : 'Scan any product barcode to remove one unit from the cart. Scan the ADD (Checkout) barcode to switch modes.'}
+                  ? 'Scan any product barcode to add it to the cart. Scan the REMOVE barcode to enter one-shot remove mode.'
+                  : 'Scan any product to remove one unit — mode will automatically reset to ADD after that scan.'}
               </p>
             </div>
 
