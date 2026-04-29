@@ -24,6 +24,7 @@ export default function ReceiptPage() {
   const [payment, setPayment] = useState<Payment | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [dateStr, setDateStr] = useState('')
 
   useEffect(() => {
     fetch(`/api/receipt/${sessionId}`)
@@ -33,6 +34,11 @@ export default function ReceiptPage() {
         setSession(json.data.session)
         setItems(json.data.items)
         setPayment(json.data.payment)
+        // Format date client-side only to avoid SSR/client locale mismatch
+        const rawDate = json.data.payment?.paid_at || json.data.session?.completed_at
+        if (rawDate) {
+          setDateStr(new Date(rawDate).toLocaleString('en-IN'))
+        }
       })
       .catch((e: unknown) => setError(e instanceof Error ? e.message : 'Failed to load receipt'))
       .finally(() => setLoading(false))
@@ -72,7 +78,7 @@ export default function ReceiptPage() {
             <p><strong>Customer:</strong> {session.customer_name}</p>
             <p><strong>Mobile:</strong> {session.customer_mobile}</p>
             <p><strong>Trolley:</strong> {session.trolley_id}</p>
-            <p><strong>Date:</strong> {new Date(payment?.paid_at || session.completed_at).toLocaleString('en-IN')}</p>
+            <p><strong>Date:</strong> {dateStr || '—'}</p>
             <p><strong>Receipt No:</strong> {sessionId.slice(0, 8).toUpperCase()}</p>
           </div>
 

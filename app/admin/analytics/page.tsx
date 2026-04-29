@@ -90,7 +90,7 @@ export default function AnalyticsPage() {
         <div className="stat-card">
           <div className="stat-icon" style={{ background: '#dcfce7' }}>💰</div>
           <p className="stat-label">Total Revenue (All Time)</p>
-          <p className="stat-value">₹{data.totalRevenue.toLocaleString('en-IN')}</p>
+          <p className="stat-value" suppressHydrationWarning>₹{data.totalRevenue.toLocaleString('en-IN')}</p>
         </div>
         <div className="stat-card">
           <div className="stat-icon" style={{ background: '#dbeafe' }}>🧾</div>

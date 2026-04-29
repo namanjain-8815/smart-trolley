@@ -16,6 +16,7 @@ export async function POST(req: NextRequest) {
 
     if (!session) return err('Session not found', 404)
     if (session.status === 'paid') return err('This session is already paid', 400)
+    // Allow 'active' or 'checkout' sessions — idempotent re-generation is fine
 
     // Get items
     const { data: items } = await supabaseAdmin

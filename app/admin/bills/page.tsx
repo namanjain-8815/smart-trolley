@@ -104,7 +104,7 @@ export default function BillsPage() {
                         <p className="text-xs text-muted" style={{ marginTop: '0.2rem' }}>TXN: {payment.upi_txn_id}</p>
                       )}
                     </td>
-                    <td className="text-xs text-secondary">
+                    <td className="text-xs text-secondary" suppressHydrationWarning>
                       {new Date(b.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: '2-digit' })}
                     </td>
                     <td>

@@ -98,7 +98,7 @@ export default function SessionsPage() {
                     </td>
                     <td>{s.current_weight != null ? `${s.current_weight}g` : <span className="text-muted">—</span>}</td>
                     <td>{payment ? `₹${payment.amount?.toFixed(2)}` : <span className="text-muted">—</span>}</td>
-                    <td className="text-xs text-secondary">{new Date(s.created_at).toLocaleString('en-IN', { hour: '2-digit', minute: '2-digit', month: 'short', day: 'numeric' })}</td>
+                    <td className="text-xs text-secondary" suppressHydrationWarning>{new Date(s.created_at).toLocaleString('en-IN', { hour: '2-digit', minute: '2-digit', month: 'short', day: 'numeric' })}</td>
                     <td>
                       <Link href={`/customer/billing/${s.id}`} target="_blank" className="btn btn-outline btn-sm">View Bill →</Link>
                     </td>

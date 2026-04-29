@@ -11,10 +11,11 @@
 // =====================================================
 LiquidCrystal_I2C lcd(0x27, 16, 2);
 WebServer server(80);
+
 // =====================================================
 // WIFI
 // =====================================================
-const char* ssid = "Sk";
+const char* ssid     = "Sk";
 const char* password = "12345678";
 
 // =====================================================
@@ -24,15 +25,29 @@ const char* BASE_URL   = "https://smart-trolley-nine.vercel.app";
 const char* TROLLEY_ID = "T002";
 
 // =====================================================
-// TOTALS
+// TOTALS  (synced from server every POLL_INTERVAL_MS)
 // =====================================================
-int itemCount = 0;
-int total = 0;
+int  itemCount = 0;
+int  total     = 0;
 
 // =====================================================
 // REMOVE MODE
 // =====================================================
 bool removeMode = false;
+
+// =====================================================
+// CHECKOUT / PAYMENT WAIT MODE
+// =====================================================
+bool checkoutMode = false;   // true while waiting for UPI payment
+
+// =====================================================
+// POLL TIMERS
+// =====================================================
+unsigned long lastPollMs        = 0;
+const unsigned long POLL_INTERVAL_MS    = 8000UL; // LCD sync every 8 s (idle)
+
+unsigned long lastPaymentPollMs = 0;
+const unsigned long PAYMENT_POLL_MS     = 4000UL; // payment check every 4 s
 
 // =====================================================
 // LCD HELPERS
@@ -42,20 +57,17 @@ void showMessage(String line1, String line2 = "") {
   lcd.clear();
   lcd.setCursor(0, 0);
   lcd.print(line1.substring(0, 16));
-
   lcd.setCursor(0, 1);
   lcd.print(line2.substring(0, 16));
 }
 
 void showSummary() {
   lcd.clear();
-
   lcd.setCursor(0, 0);
   lcd.print("Items:");
   lcd.print(itemCount);
-
   lcd.setCursor(0, 1);
-  lcd.print("Total:");
+  lcd.print("Total:Rs");
   lcd.print(total);
 }
 
@@ -77,15 +89,12 @@ void showRemoved(String name) {
 
 void connectWiFi() {
   showMessage("Connecting...");
-
   WiFi.mode(WIFI_STA);
   WiFi.disconnect(true);
   delay(1000);
-
   WiFi.begin(ssid, password);
 
   int tries = 0;
-
   while (WiFi.status() != WL_CONNECTED && tries < 30) {
     delay(500);
     lcd.print(".");
@@ -101,10 +110,8 @@ void connectWiFi() {
   }
 }
 
-
-
 // =====================================================
-// HTTPS HELPER
+// HTTPS HELPER  (one static client per call — no leak)
 // =====================================================
 
 bool beginSecureRequest(HTTPClient &http, String url) {
@@ -112,12 +119,90 @@ bool beginSecureRequest(HTTPClient &http, String url) {
     showMessage("WiFi Error");
     return false;
   }
-
   WiFiClientSecure *client = new WiFiClientSecure;
   client->setInsecure();
-
   http.begin(*client, url);
   return true;
+}
+
+// =====================================================
+// POLL SERVER — keep LCD in sync with database
+// Called from loop() every POLL_INTERVAL_MS when idle
+// =====================================================
+
+void pollLCD() {
+  HTTPClient http;
+  String url = String(BASE_URL) + "/api/checkout-status?trolley_id=" + String(TROLLEY_ID);
+
+  if (!beginSecureRequest(http, url)) { http.end(); return; }
+
+  int httpCode = http.GET();
+
+  if (httpCode == 200) {
+    String payload = http.getString();
+
+    StaticJsonDocument<512> doc;
+    deserializeJson(doc, payload);
+
+    int serverTotal = (int)(doc["data"]["grandTotal"] | (float)total);
+    int serverCount = doc["data"]["itemCount"]  | itemCount;
+    String status   = doc["data"]["status"]     | String("active");
+
+    // Only redraw LCD if something changed (avoids flicker)
+    if (serverTotal != total || serverCount != itemCount) {
+      total     = serverTotal;
+      itemCount = serverCount;
+      showSummary();
+    }
+
+    Serial.print("POLL: items=");
+    Serial.print(serverCount);
+    Serial.print(" total=");
+    Serial.println(serverTotal);
+  }
+
+  http.end();
+}
+
+// =====================================================
+// POLL PAYMENT STATUS — called from loop() during checkout
+// Keeps LCD on "Scan QR" until session becomes 'paid',
+// then shows Thank You and resets back to ready state.
+// =====================================================
+
+void pollPaymentStatus() {
+  HTTPClient http;
+  String url = String(BASE_URL) + "/api/checkout-status?trolley_id=" + String(TROLLEY_ID);
+
+  if (!beginSecureRequest(http, url)) { http.end(); return; }
+
+  int httpCode = http.GET();
+
+  if (httpCode == 200) {
+    String payload = http.getString();
+
+    StaticJsonDocument<512> doc;
+    deserializeJson(doc, payload);
+
+    String status = doc["data"]["status"] | String("checkout");
+
+    Serial.print("PAYMENT POLL: status=");
+    Serial.println(status);
+
+    if (status == "paid") {
+      // Payment confirmed by website — reset everything
+      checkoutMode = false;
+      total        = 0;
+      itemCount    = 0;
+
+      showMessage("Thank You!", "Come Again :)");
+      delay(3000);
+      showMessage("Smart Trolley", "Ready...");
+    }
+    // If still 'checkout' — keep showing "Scan QR on / Phone to Pay" (no redraw needed)
+  }
+
+  http.end();
 }
 
 // =====================================================
@@ -125,9 +210,7 @@ bool beginSecureRequest(HTTPClient &http, String url) {
 // =====================================================
 
 void addProduct(String barcode) {
-
   HTTPClient http;
-
   String url = String(BASE_URL) + "/api/scan";
 
   if (!beginSecureRequest(http, url)) return;
@@ -136,10 +219,9 @@ void addProduct(String barcode) {
 
   String body =
     "{\"trolley_id\":\"" + String(TROLLEY_ID) +
-    "\",\"barcode\":\"" + barcode + "\"}";
+    "\",\"barcode\":\""  + barcode + "\"}";
 
   int httpCode = http.POST(body);
-
   String payload = http.getString();
 
   Serial.print("ADD HTTP: ");
@@ -151,11 +233,8 @@ void addProduct(String barcode) {
     StaticJsonDocument<2048> doc;
     deserializeJson(doc, payload);
 
-    String name =
-      doc["data"]["product"]["name"] | "Item";
-
-    int price =
-      doc["data"]["product"]["price"] | 0;
+    String name  = doc["data"]["product"]["name"]  | "Item";
+    int    price = doc["data"]["product"]["price"]  | 0;
 
     itemCount++;
     total += price;
@@ -167,6 +246,8 @@ void addProduct(String barcode) {
     lcd.clear();
     lcd.print("Err:");
     lcd.print(httpCode);
+    delay(1500);
+    showSummary();
   }
 
   http.end();
@@ -177,21 +258,19 @@ void addProduct(String barcode) {
 // =====================================================
 
 void removeProduct(String barcode) {
-
   HTTPClient http;
-
-  String url = String(BASE_URL) + "/api/scan/remove";
+  String url = String(BASE_URL) + "/api/remove";
 
   if (!beginSecureRequest(http, url)) return;
 
   http.addHeader("Content-Type", "application/json");
 
+  // NOTE: barcode is sent AS-IS (not uppercased) so it matches the DB exactly
   String body =
     "{\"trolley_id\":\"" + String(TROLLEY_ID) +
-    "\",\"barcode\":\"" + barcode + "\"}";
+    "\",\"barcode\":\""  + barcode + "\"}";
 
   int httpCode = http.POST(body);
-
   String payload = http.getString();
 
   Serial.print("REMOVE HTTP: ");
@@ -203,42 +282,32 @@ void removeProduct(String barcode) {
     StaticJsonDocument<2048> doc;
     deserializeJson(doc, payload);
 
-    String name =
-      doc["product"]["name"] |
-      doc["data"]["product"]["name"] |
-      "Item";
-
-    int price =
-      doc["product"]["price"] |
-      doc["data"]["product"]["price"] |
-      0;
+    String name  = doc["data"]["product"]["name"]  | "Item";
+    int    price = doc["data"]["product"]["price"]  | 0;
 
     if (itemCount > 0) itemCount--;
-
     total -= price;
-
     if (total < 0) total = 0;
 
     showRemoved(name);
 
   } else {
 
-    showMessage("Not Found");
+    // Show the HTTP code so we can debug (e.g. 404 = not in cart, 409 = checked out)
+    showMessage("Remove Err", String(httpCode));
+    delay(1500);
+    showSummary();
   }
 
   http.end();
 }
 
 // =====================================================
-// CHECKOUT (POST TO WEBSITE)
+// CHECKOUT
 // =====================================================
 
 void checkout() {
-
   HTTPClient http;
-
-  // Send to /api/scan with barcode="CHECKOUT" — the unified scan endpoint
-  // handles checkout logic: marks session as 'checkout', creates payment record.
   String url = String(BASE_URL) + "/api/scan";
 
   if (!beginSecureRequest(http, url)) return;
@@ -250,7 +319,6 @@ void checkout() {
     "\",\"barcode\":\"CHECKOUT\"}";
 
   int httpCode = http.POST(body);
-
   String payload = http.getString();
 
   Serial.print("CHECKOUT HTTP: ");
@@ -261,7 +329,6 @@ void checkout() {
 
   if (httpCode == 200) {
 
-    // Parse grand total from response to display on LCD
     StaticJsonDocument<1024> doc;
     deserializeJson(doc, payload);
     float grandTotal = doc["data"]["totals"]["grandTotal"] | (float)total;
@@ -276,23 +343,26 @@ void checkout() {
 
     delay(3000);
 
-    // Reset local counters — DB data is preserved for payment
-    total = 0;
-    itemCount = 0;
+    // Enter payment-wait mode — loop() will poll every 4 s
+    // LCD stays on this message until payment is confirmed
+    total        = 0;
+    itemCount    = 0;
+    checkoutMode = true;
 
     showMessage("Scan QR on", "Phone to Pay");
-    delay(2000);
+    // No blocking delay — return immediately so loop() keeps running
 
   } else {
 
     lcd.clear();
     lcd.print("Chk Err:");
     lcd.print(httpCode);
+    delay(1500);
   }
 }
 
 // =====================================================
-// SETUP
+// HTTP /barcode  handler  (called by scanner.py)
 // =====================================================
 void handleBarcode() {
   if (!server.hasArg("barcode")) {
@@ -300,18 +370,19 @@ void handleBarcode() {
     return;
   }
 
-  String input = server.arg("barcode");
+  // Preserve original barcode for product lookup (case-sensitive DB match)
+  String raw = server.arg("barcode");
+  raw.trim();
+  raw.replace("\r", "");
+  raw.replace("\n", "");
 
-  input.trim();
-  input.replace("\r", "");
-  input.replace("\n", "");
+  // Upper-case copy only for control keyword comparison
+  String input = raw;
   input.toUpperCase();
 
   Serial.println("WiFi INPUT: " + input);
 
-  // SAME LOGIC AS LOOP
-
-  if (removeMode == true) {
+  if (removeMode) {
 
     if (input == "REMOVE") {
       showMessage("Scan item to", "REMOVE");
@@ -319,7 +390,7 @@ void handleBarcode() {
       return;
     }
 
-    removeProduct(input);
+    removeProduct(raw);   // ← send raw (original case) barcode
     removeMode = false;
     server.send(200, "text/plain", "Removed");
     return;
@@ -338,15 +409,15 @@ void handleBarcode() {
     return;
   }
 
-  addProduct(input);
+  addProduct(raw);        // ← send raw (original case) barcode
   server.send(200, "text/plain", "Added");
 }
 
-
+// =====================================================
+// SETUP
+// =====================================================
 void setup() {
-
   Serial.begin(115200);
-
   Wire.begin(15, 14);
 
   lcd.init();
@@ -372,23 +443,40 @@ void setup() {
 void loop() {
 
   server.handleClient();
+
+  unsigned long now = millis();
+
+  // ── Payment-wait poll: check if session became 'paid' every 4 s ─────────
+  if (checkoutMode && (now - lastPaymentPollMs >= PAYMENT_POLL_MS)) {
+    lastPaymentPollMs = now;
+    pollPaymentStatus();
+  }
+
+  // ── Background LCD sync: keep totals fresh every 8 s (idle only) ────────
+  if (!removeMode && !checkoutMode && (now - lastPollMs >= POLL_INTERVAL_MS)) {
+    lastPollMs = now;
+    pollLCD();
+  }
+
   if (Serial.available()) {
 
-    String input = Serial.readStringUntil('\n');
+    String raw = Serial.readStringUntil('\n');
+    raw.trim();
+    raw.replace("\r", "");
+    raw.replace("\n", "");
 
-    input.trim();
-    input.replace("\r", "");
-    input.replace("\n", "");
+    if (raw.length() == 0) return;
+
+    // Upper-case copy only for control keyword comparison
+    String input = raw;
     input.toUpperCase();
-
-    if (input.length() == 0) return;
 
     Serial.print("INPUT:[");
     Serial.print(input);
     Serial.println("]");
 
     // REMOVE MODE ACTIVE
-    if (removeMode == true) {
+    if (removeMode) {
 
       if (input == "REMOVE") {
         showMessage("Scan item to", "REMOVE");
@@ -396,7 +484,7 @@ void loop() {
         return;
       }
 
-      removeProduct(input);
+      removeProduct(raw);   // ← raw barcode preserves original case
       removeMode = false;
       return;
     }
@@ -417,6 +505,6 @@ void loop() {
     }
 
     // NORMAL ADD
-    addProduct(input);
+    addProduct(raw);        // ← raw barcode preserves original case
   }
 }

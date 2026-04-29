@@ -113,7 +113,7 @@ export default function AdminDashboard() {
                               {s.status}
                             </span>
                           </td>
-                          <td className="text-secondary text-xs">{new Date(s.created_at).toLocaleTimeString('en-IN')}</td>
+                          <td className="text-secondary text-xs" suppressHydrationWarning>{new Date(s.created_at).toLocaleTimeString('en-IN')}</td>
                           <td>
                             <Link href={`/customer/billing/${s.id}`} className="btn btn-ghost btn-sm" target="_blank">View →</Link>
                           </td>

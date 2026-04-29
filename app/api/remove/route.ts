@@ -15,16 +15,21 @@ export async function POST(req: NextRequest) {
       return err('trolley_id and barcode are required')
     }
 
-    // 1. Find active session
+    // 1. Find the most recent session for this trolley
     const { data: session, error: sessionError } = await supabaseAdmin
       .from('trolley_sessions')
-      .select('id')
+      .select('id, status')
       .eq('trolley_id', trolley_id)
-      .eq('status', 'active')
+      .order('created_at', { ascending: false })
+      .limit(1)
       .single()
 
     if (sessionError || !session) {
       return err(`No active session found for trolley ${trolley_id}.`, 404)
+    }
+
+    if (session.status !== 'active') {
+      return err('Cannot remove items — session is already in checkout or paid state.', 409)
     }
 
     // 2. Find product by barcode

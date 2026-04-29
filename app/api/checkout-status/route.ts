@@ -22,12 +22,26 @@ export async function GET(req: NextRequest) {
 
     if (sessionError || !session) {
       // No session at all — return idle
-      return ok({ status: 'active', session_id: null, grandTotal: 0, upiLink: '' })
+      return ok({ status: 'idle', session_id: null, grandTotal: 0, upiLink: '' })
     }
 
-    // For idle / active sessions just return the status
+    // For active sessions — calculate real totals so Arduino LCD stays in sync
     if (session.status === 'active') {
-      return ok({ status: 'active', session_id: session.id, grandTotal: 0, upiLink: '' })
+      const { data: activeItems } = await supabaseAdmin
+        .from('scanned_items')
+        .select('quantity, unit_price, gst_percent, discount_percent')
+        .eq('session_id', session.id)
+
+      const activeTotals = calculateBillTotals(activeItems || [])
+      const itemCount    = (activeItems || []).reduce((s, i) => s + i.quantity, 0)
+
+      return ok({
+        status:     'active',
+        session_id: session.id,
+        grandTotal: activeTotals.grandTotal,
+        itemCount,
+        upiLink:    '',
+      })
     }
 
     // For checkout / paid — return totals + UPI link so LCD can build QR
@@ -36,13 +50,15 @@ export async function GET(req: NextRequest) {
       .select('quantity, unit_price, gst_percent, discount_percent')
       .eq('session_id', session.id)
 
-    const totals  = calculateBillTotals(items || [])
-    const upiLink = generateUpiLink(totals.grandTotal, session.id)
+    const totals    = calculateBillTotals(items || [])
+    const upiLink   = generateUpiLink(totals.grandTotal, session.id)
+    const itemCount = (items || []).reduce((s, i) => s + i.quantity, 0)
 
     return ok({
-      status:      session.status,   // 'checkout' | 'paid'
-      session_id:  session.id,
-      grandTotal:  totals.grandTotal,
+      status:     session.status,   // 'checkout' | 'paid'
+      session_id: session.id,
+      grandTotal: totals.grandTotal,
+      itemCount,
       upiLink,
     })
   } catch (e: unknown) {

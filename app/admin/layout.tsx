@@ -17,10 +17,8 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
   const pathname = usePathname()
 
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const token = localStorage.getItem('adminToken')
-      if (!token) router.replace('/admin/login')
-    }
+    const token = localStorage.getItem('adminToken')
+    if (!token) router.replace('/admin/login')
   }, [router])
 
   function logout() {
@@ -37,7 +35,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
         </Link>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
           <Link href="/" className="btn btn-ghost btn-sm">🏠 Site</Link>
-          <button className="btn btn-outline btn-sm" onClick={logout}>Logout</button>
+          <button className="btn btn-outline btn-sm" onClick={logout} suppressHydrationWarning>Logout</button>
         </div>
       </nav>
 

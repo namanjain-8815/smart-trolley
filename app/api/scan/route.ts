@@ -5,10 +5,10 @@ import { getMode, setMode } from '@/lib/trolleyMode'
 
 // ─── Special Control Barcodes ───────────────────────────────────────────────
 // These barcodes trigger special actions instead of adding/removing a product.
-const MODE_ADD_BARCODE    = 'Add'         // Scan this barcode → ADD mode    (green)
-const MODE_REMOVE_BARCODE = 'MODE_REMOVE' // Scan this barcode → REMOVE mode (red)
-const CHECKOUT_BARCODE    = 'Checkout'    // Scan this barcode → initiate checkout
-const CHECKOUT_BARCODE_ALT = 'CHECKOUT'   // Alternative all-caps variant
+const MODE_ADD_BARCODE    = 'Add'        // Scan this barcode → ADD mode    (green)
+const MODE_REMOVE_BARCODE = 'REMOVE'     // Scan this barcode → REMOVE mode (red)
+const CHECKOUT_BARCODE    = 'Checkout'   // Scan this barcode → initiate checkout
+const CHECKOUT_BARCODE_ALT = 'CHECKOUT'  // Alternative all-caps variant
 
 // POST /api/scan
 // Body: { trolley_id, barcode }
@@ -17,6 +17,10 @@ const CHECKOUT_BARCODE_ALT = 'CHECKOUT'   // Alternative all-caps variant
 export async function POST(req: NextRequest) {
   try {
     const { trolley_id, barcode } = await req.json()
+
+    if (!trolley_id || !barcode) {
+      return err('trolley_id and barcode are required', 400)
+    }
 
     // ── STEP 1: Intercept special control barcodes ───────────────────────────
     if (barcode === MODE_ADD_BARCODE) {
