@@ -144,21 +144,33 @@ void pollLCD() {
     StaticJsonDocument<512> doc;
     deserializeJson(doc, payload);
 
-    int serverTotal = (int)(doc["data"]["grandTotal"] | (float)total);
-    int serverCount = doc["data"]["itemCount"]  | itemCount;
-    String status   = doc["data"]["status"]     | String("active");
+    String status = doc["data"]["status"] | String("idle");
 
-    // Only redraw LCD if something changed (avoids flicker)
+    Serial.print("POLL: status=");
+    Serial.println(status);
+
+    // ── Only sync LCD from an ACTIVE session ─────────────────────────────
+    // Paid / checkout / idle sessions are ignored — counters stay at 0
+    // so we never show last session's items after payment completes.
+    if (status != "active") {
+      http.end();
+      return;
+    }
+
+    int serverTotal = (int)(doc["data"]["grandTotal"] | (float)total);
+    int serverCount = doc["data"]["itemCount"]        | itemCount;
+
+    // Only redraw if something changed (avoids flicker)
     if (serverTotal != total || serverCount != itemCount) {
       total     = serverTotal;
       itemCount = serverCount;
       showSummary();
-    }
 
-    Serial.print("POLL: items=");
-    Serial.print(serverCount);
-    Serial.print(" total=");
-    Serial.println(serverTotal);
+      Serial.print("POLL sync: items=");
+      Serial.print(serverCount);
+      Serial.print(" total=");
+      Serial.println(serverTotal);
+    }
   }
 
   http.end();
