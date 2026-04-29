@@ -237,16 +237,19 @@ void checkout() {
 
   HTTPClient http;
 
-  String url =
-    String(BASE_URL) +
-    "/api/bill/" +
-    String(TROLLEY_ID);
+  // Send to /api/scan with barcode="CHECKOUT" — the unified scan endpoint
+  // handles checkout logic: marks session as 'checkout', creates payment record.
+  String url = String(BASE_URL) + "/api/scan";
 
   if (!beginSecureRequest(http, url)) return;
 
   http.addHeader("Content-Type", "application/json");
 
-  int httpCode = http.POST("");
+  String body =
+    "{\"trolley_id\":\"" + String(TROLLEY_ID) +
+    "\",\"barcode\":\"CHECKOUT\"}";
+
+  int httpCode = http.POST(body);
 
   String payload = http.getString();
 
@@ -258,23 +261,27 @@ void checkout() {
 
   if (httpCode == 200) {
 
-    showMessage("Processing...");
-    delay(1500);
+    // Parse grand total from response to display on LCD
+    StaticJsonDocument<1024> doc;
+    deserializeJson(doc, payload);
+    float grandTotal = doc["data"]["totals"]["grandTotal"] | (float)total;
+
+    showMessage("Checkout Done!");
+    delay(1200);
 
     lcd.clear();
     lcd.print("Pay Rs:");
     lcd.setCursor(0, 1);
-    lcd.print(total);
+    lcd.print((int)grandTotal);
 
     delay(3000);
 
+    // Reset local counters — DB data is preserved for payment
     total = 0;
     itemCount = 0;
 
-    showMessage("Thank You!");
+    showMessage("Scan QR on", "Phone to Pay");
     delay(2000);
-
-    showMessage("Scan Again");
 
   } else {
 

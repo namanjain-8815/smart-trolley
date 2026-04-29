@@ -106,8 +106,11 @@ export default function BillingPage() {
       const prev: ScannedItem[] = prevItemsRef.current
       const curr: ScannedItem[] = json.data.items
 
+      // Capture BEFORE we flip the flag — needed for checkout detection below
+      const wasFirstFetch = isFirstFetch.current
+
       // Diff items to generate toast feedback (skip on very first load)
-      if (!isFirstFetch.current) {
+      if (!wasFirstFetch) {
         const prevMap = new Map(prev.map(i => [i.id, i]))
         const currMap = new Map(curr.map(i => [i.id, i]))
 
@@ -140,14 +143,16 @@ export default function BillingPage() {
 
       if (newSession.status === 'paid') router.push(`/customer/receipt/${sessionId}`)
 
-      // Detect scanner-triggered checkout: session flipped to 'checkout' while we were watching
+      // Detect scanner-triggered checkout: session flipped to 'checkout' while we were watching.
+      // Only redirect if NOT the very first fetch (avoids redirect loop on page refresh).
       if (newSession.status === 'checkout' && !checkoutRedirectedRef.current) {
         checkoutRedirectedRef.current = true
-        const wasScanner = prevSessionStatusRef.current === 'active'
-        if (wasScanner && !isFirstFetch.current) {
+        const triggeredByScanner = prevSessionStatusRef.current === 'active' && !wasFirstFetch
+        if (triggeredByScanner) {
           showToast('🛒 Checkout initiated via scanner', 'success')
         }
-        setTimeout(() => router.push(`/customer/payment/${sessionId}`), wasScanner ? 1200 : 0)
+        // Always redirect to payment — delay only when scanner triggered (to show toast)
+        setTimeout(() => router.push(`/customer/payment/${sessionId}`), triggeredByScanner ? 1200 : 0)
       }
 
       prevSessionStatusRef.current = newSession.status
